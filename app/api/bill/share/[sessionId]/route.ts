@@ -1,17 +1,23 @@
 // app/api/bill/share/[sessionId]/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
+// Optional but good — avoid build caching issues
+export const dynamic = "force-dynamic";
+
 const client = new DynamoDBClient({
-  region: process.env.AWS_REGION || "ap-southeast-2",
+  region: process.env.MY_AWS_REGION || "ap-southeast-2",
 });
 
-const TABLE_NAME = "BillSessions";
+const TABLE_NAME = process.env.TABLE_NAME || "BillSessions";
 
-export async function GET(_: Request, { params }: { params: { sessionId: string } }) {
+export async function GET(
+  request: NextRequest,
+  context: { params: { sessionId: string } }
+) {
+  const { sessionId } = context.params;
+
   try {
-    const { sessionId } = params;
-
     const result = await client.send(
       new GetItemCommand({
         TableName: TABLE_NAME,
@@ -34,8 +40,11 @@ export async function GET(_: Request, { params }: { params: { sessionId: string 
       imageUrl: result.Item.imageUrl.S,
       expiresAt: result.Item.expiresAt.S,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching share session:", error);
-    return NextResponse.json({ error: "Failed to fetch session" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Failed to fetch session" },
+      { status: 500 }
+    );
   }
 }
