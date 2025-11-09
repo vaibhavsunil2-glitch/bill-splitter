@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
-// Avoid caching during serverless fetches
 export const dynamic = "force-dynamic";
 
 const client = new DynamoDBClient({
@@ -12,10 +11,11 @@ const TABLE_NAME = process.env.TABLE_NAME || "BillSessions";
 
 export async function GET(
   request: NextRequest,
-  context: { params: { sessionId: string } }
+  context: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    const { sessionId } = context.params;
+    // ✅ await params (Vercel’s Next.js v15 requirement)
+    const { sessionId } = await context.params;
 
     const result = await client.send(
       new GetItemCommand({
@@ -41,6 +41,6 @@ export async function GET(
     });
   } catch (error: any) {
     console.error("❌ Error fetching share session:", error);
-    return NextResponse.json({ error: "Failed to fetch session" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Failed to fetch session" }, { status: 500 });
   }
 }
