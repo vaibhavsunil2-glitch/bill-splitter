@@ -1,12 +1,26 @@
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
+import { NextRequest } from "next/server";
+
+export const dynamic = "force-dynamic";
 
 const dynamo = new DynamoDBClient({ region: "ap-southeast-2" });
 
 export async function GET(
-  request: Request,
-  { params }: { params: { fileName: string } }
+  request: NextRequest,
+  context: { params: Promise<{}> }
 ) {
-  const fileName = decodeURIComponent(params.fileName);
+  const fileNameParam = request.nextUrl.searchParams.get("fileName");
+  if (!fileNameParam) {
+    return new Response(JSON.stringify({ message: "fileName is required" }), {
+      status: 400,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+      },
+    });
+  }
+  
+  const fileName = decodeURIComponent(fileNameParam);
   console.log("[v0] Looking up bill for:", fileName);
 
   // ✅ If filename starts with "sessions/", we assume full S3 path

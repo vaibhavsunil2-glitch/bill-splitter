@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 
-export default function UploadPage() {
+interface UploadPageProps {
+  onUploadComplete?: (data: any) => void;
+}
+
+export default function UploadPage({ onUploadComplete }: UploadPageProps) {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
@@ -56,17 +60,17 @@ export default function UploadPage() {
 
       // 3️⃣ Poll backend for Textract results
       setStatus("Processing bill with Textract...");
-      let billData = null;
+      let processedBillData = null;
       for (let i = 0; i < 10; i++) {
         await new Promise((r) => setTimeout(r, 3000));
         const billRes = await fetch(`/api/bill/${encodeURIComponent(file.name)}`);
         if (billRes.ok) {
-          billData = await billRes.json();
+          processedBillData = await billRes.json();
           break;
         }
       }
 
-      if (!billData) throw new Error("Timed out waiting for Textract output.");
+      if (!processedBillData) throw new Error("Timed out waiting for Textract output.");
 
       // 4️⃣ Create shareable session
       setStatus("Creating session...");
@@ -80,7 +84,7 @@ export default function UploadPage() {
         body: JSON.stringify({
           sessionId,
           billId: file.name,
-          imageUrl: billData.imageUrl || "",
+          imageUrl: processedBillData.imageUrl || "",
           createdAt: now.toISOString(),
           expiresAt,
         }),
@@ -92,7 +96,8 @@ export default function UploadPage() {
       const shareLink = `${window.location.origin}/session/${sessionId}`;
       alert(`✅ Bill ready!\nShare this link (valid for 15 minutes):\n\n${shareLink}`);
 
-      router.push(`/bill-view?billId=${encodeURIComponent(file.name)}`);
+      const billData = { billId: file.name };
+      onUploadComplete?.(billData);
     } catch (err) {
       console.error(err);
       const msg = err instanceof Error ? err.message : String(err);

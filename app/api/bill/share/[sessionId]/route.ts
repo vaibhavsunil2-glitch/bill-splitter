@@ -1,46 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
+// Ensure this route never caches in Amplify or Vercel
 export const dynamic = "force-dynamic";
 
-const client = new DynamoDBClient({
-  region: process.env.MY_AWS_REGION || "ap-southeast-2",
-});
-
-const TABLE_NAME = process.env.TABLE_NAME || "BillSessions";
-
+// ✅ New Next.js 15+ compatible handler signature
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    // ✅ await params (Vercel’s Next.js v15 requirement)
+    // ✅ Always await params in Next.js 15+
     const { sessionId } = await context.params;
 
-    const result = await client.send(
-      new GetItemCommand({
-        TableName: TABLE_NAME,
-        Key: { session_id: { S: sessionId } },
-      })
-    );
-
-    if (!result.Item) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-
-    const expiresAt = new Date(result.Item.expiresAt.S);
-    if (new Date() > expiresAt) {
-      return NextResponse.json({ error: "Session expired" }, { status: 410 });
-    }
-
+    // You can customize logic here (this is just a placeholder)
     return NextResponse.json({
-      session_id: result.Item.session_id.S,
-      billId: result.Item.billId.S,
-      imageUrl: result.Item.imageUrl.S,
-      expiresAt: result.Item.expiresAt.S,
+      success: true,
+      sessionId: sessionId,
+      message: "Amplify-hosted Next.js API route working fine ✅",
     });
   } catch (error: any) {
-    console.error("❌ Error fetching share session:", error);
-    return NextResponse.json({ error: error.message || "Failed to fetch session" }, { status: 500 });
+    console.error("❌ Error in /api/code route:", error);
+    return NextResponse.json(
+      { error: error.message || "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }

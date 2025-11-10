@@ -21,7 +21,8 @@ export default function Home() {
   }
 
   if (billData) {
-    return <BillViewPage billData={billData} onBack={handleBackToUpload} />
+    router.push(`?billId=${billId}`)
+    return <BillViewPage />
   }
 
   return <UploadPage onUploadComplete={handleUploadComplete} />
