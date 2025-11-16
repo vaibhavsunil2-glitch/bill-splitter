@@ -1,31 +1,34 @@
 "use client";
 
 import { useState } from "react";
-import { v4 as uuidv4 } from "uuid";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 
-interface UploadPageProps {
-  onUploadComplete?: (data: any) => void;
-}
-
-export default function UploadPage({ onUploadComplete }: UploadPageProps) {
+export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<string>("");
+
   const router = useRouter();
 
+  // -------------------------------
+  // handle file selection
+  // -------------------------------
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
+
     const reader = new FileReader();
     reader.onload = (e) => setPreview(e.target?.result as string);
     reader.readAsDataURL(selectedFile);
   };
 
+  // -------------------------------
+  // MAIN UPLOAD HANDLER
+  // -------------------------------
   const handleUpload = async () => {
     if (!file) return setError("Please select a file first");
 
@@ -47,10 +50,18 @@ export default function UploadPage({ onUploadComplete }: UploadPageProps) {
       if (!presignRes.ok) throw new Error("Failed to get presigned URL");
 
       const presignData = await presignRes.json();
-      const uploadUrl = presignData.uploadUrl;
-      if (!uploadUrl) throw new Error("Presigned URL missing from response");
 
-      // 2️⃣ Upload file directly to S3
+      const uploadUrl: string = presignData.uploadUrl;
+      const s3Key: string = presignData.key;
+      const sessionId: string = presignData.sessionId;
+
+      if (!uploadUrl || !s3Key || !sessionId) {
+        throw new Error(
+          "Presign API missing key/uploadUrl/sessionId in response"
+        );
+      }
+
+      // 2️⃣ Upload file to S3
       setStatus("Uploading to S3...");
       await fetch(uploadUrl, {
         method: "PUT",
@@ -58,46 +69,55 @@ export default function UploadPage({ onUploadComplete }: UploadPageProps) {
         body: file,
       });
 
-      // 3️⃣ Poll backend for Textract results
+      // 3️⃣ Poll Textract Processor Lambda via Next.js API
       setStatus("Processing bill with Textract...");
+
       let processedBillData = null;
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        const billRes = await fetch(`/api/bill/${encodeURIComponent(file.name)}`);
+
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 3000)); // wait 3s
+
+        const billRes = await fetch(
+          `/api/bill/${encodeURIComponent(s3Key)}`
+        );
+
         if (billRes.ok) {
           processedBillData = await billRes.json();
           break;
         }
       }
 
-      if (!processedBillData) throw new Error("Timed out waiting for Textract output.");
+      if (!processedBillData) {
+        throw new Error("Timed out waiting for bill processing");
+      }
 
-      // 4️⃣ Create shareable session
-      setStatus("Creating session...");
-      const sessionId = uuidv4();
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+      // 4️⃣ Create share session
+      setStatus("Creating share link...");
 
-      const sessionRes = await fetch("/api/session", {
+      const shareRes = await fetch("/api/bill/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sessionId,
-          billId: file.name,
+          billId: s3Key, // S3 key acts as bill ID
           imageUrl: processedBillData.imageUrl || "",
-          createdAt: now.toISOString(),
-          expiresAt,
+          items: processedBillData.items || [],
+          subtotal: processedBillData.subtotal || 0,
+          tax: processedBillData.tax || 0,
+          total: processedBillData.total || 0,
         }),
       });
 
-      if (!sessionRes.ok) throw new Error("Failed to create session");
+      if (!shareRes.ok) throw new Error("Failed to create share session");
 
-      // 5️⃣ Navigate to Bill Breakdown
-      const shareLink = `${window.location.origin}/session/${sessionId}`;
-      alert(`✅ Bill ready!\nShare this link (valid for 15 minutes):\n\n${shareLink}`);
+      const { publicLink } = await shareRes.json();
 
-      const billData = { billId: file.name };
-      onUploadComplete?.(billData);
+      // 5️⃣ Show link & redirect
+      alert(
+        `✅ Bill processed!\n\nShare this link (valid for 15 minutes):\n${publicLink}`
+      );
+
+      router.push(publicLink);
     } catch (err) {
       console.error(err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -108,6 +128,9 @@ export default function UploadPage({ onUploadComplete }: UploadPageProps) {
     }
   };
 
+  // -------------------------------
+  // RENDER UI
+  // -------------------------------
   return (
     <main className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl p-8 space-y-6">
@@ -116,7 +139,7 @@ export default function UploadPage({ onUploadComplete }: UploadPageProps) {
           Upload your bill image to extract and split automatically.
         </p>
 
-        {/* Upload area */}
+        {/* Upload Box */}
         <label className="block">
           <div
             onDragOver={(e) => e.preventDefault()}
@@ -129,16 +152,18 @@ export default function UploadPage({ onUploadComplete }: UploadPageProps) {
           >
             <p className="font-semibold mb-1">Drag or click to upload</p>
             <p className="text-sm text-muted-foreground">Supported: PNG, JPG</p>
+
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+              onChange={(e) =>
+                e.target.files?.[0] && handleFileSelect(e.target.files[0])
+              }
               className="hidden"
             />
           </div>
         </label>
 
-        {/* Preview */}
         {preview && (
           <img
             src={preview}
@@ -147,7 +172,6 @@ export default function UploadPage({ onUploadComplete }: UploadPageProps) {
           />
         )}
 
-        {/* Loading / Error / Status */}
         {status && (
           <div className="flex items-center gap-2 text-sm text-blue-600">
             <Loader2 className="animate-spin w-4 h-4" />
@@ -157,7 +181,6 @@ export default function UploadPage({ onUploadComplete }: UploadPageProps) {
 
         {error && <div className="text-destructive text-sm">{error}</div>}
 
-        {/* Action Button */}
         <Button
           onClick={handleUpload}
           disabled={!file || loading}

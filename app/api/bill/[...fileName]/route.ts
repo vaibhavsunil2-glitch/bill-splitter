@@ -1,37 +1,39 @@
-// app/api/bill/[...fileName]/route.ts
-
 import { NextResponse } from "next/server";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 
-const client = new DynamoDBClient({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
-
-const TABLE_NAME = process.env.DYNAMO_TABLE_NAME || "BillSessions";
+const client = new DynamoDBClient({ region: process.env.NEXT_PUBLIC_AWS_REGION });
+const TABLE_NAME = process.env.TABLE_NAME || "BillSessions";
 
 export async function GET(
   req: Request,
   context: { params: Promise<{ fileName: string[] }> }
 ) {
   try {
-    // ✅ Next.js 16: unwrap params since it's a Promise
+    // MUST await params in Next.js 15+
     const { fileName } = await context.params;
 
     if (!fileName || fileName.length === 0) {
-      console.error("[API] ❌ Missing fileName parameter");
-      return NextResponse.json({ error: "Missing fileName" }, { status: 400 });
+      console.warn("[API] Missing fileName in request");
+      return NextResponse.json({ error: "Missing file key" }, { status: 400 });
     }
 
-    const joined = Array.isArray(fileName) ? fileName.join("/") : fileName;
+    // If route uses [...fileName], Next gives array -> join back into path
+    const joined = Array.isArray(fileName) ? fileName.join("/") : String(fileName);
     console.log("[API] Request for:", joined);
 
-    const sessionId = joined.split("/")[0];
+    // Expecting S3 key like: "sessions/<sessionId>/receipts/<fileName>"
+    const parts = joined.split("/");
+    // parts[0] === "sessions", parts[1] === "<sessionId>"
+    const sessionId = parts.length > 1 ? parts[1] : null;
+
+    if (!sessionId) {
+      console.warn("[API] Could not extract sessionId from key:", joined);
+      return NextResponse.json({ error: "Invalid key format" }, { status: 400 });
+    }
+
     console.log("[API] Session ID:", sessionId);
 
+    // Use GetItem (faster than Scan) - assumes your Dynamo key is session_id
     const result = await client.send(
       new GetItemCommand({
         TableName: TABLE_NAME,
@@ -45,40 +47,26 @@ export async function GET(
     }
 
     const item = result.Item;
-    const parsedItems = JSON.parse(item.items?.S || "[]");
 
-    const response = {
-      billId: item.session_id?.S,
+    // TTL check if you stored ttl as unix seconds in N attribute
+    const now = Math.floor(Date.now() / 1000);
+    const ttl = item.ttl?.N ? Number(item.ttl.N) : null;
+    if (ttl && now > ttl) {
+      return NextResponse.json({ error: "Link expired" }, { status: 410 });
+    }
+
+    // return parsed bill
+    return NextResponse.json({
+      sessionId: item.session_id.S,
+      items: item.items?.S ? JSON.parse(item.items.S) : [],
       imageUrl: item.imageUrl?.S || "",
-      items: parsedItems.map((i: any, idx: number) => ({
-        id: idx + 1,
-        name: i.name || "Unnamed Item",
-        price: Number(i.price) || 0,
-        totalQuantity: i.totalQuantity ?? 1,
-      })),
-      subtotal: parseFloat(item.subtotal?.N || "0"),
-      tax: parseFloat(item.tax?.N || "0"),
-      total: parseFloat(item.total?.N || "0"),
-    };
-
-    console.log("[API] ✅ Returning parsed bill:", sessionId);
-    return NextResponse.json(response);
-  } catch (error) {
-    console.error("[API] ❌ Error fetching DynamoDB record:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch record", details: String(error) },
-      { status: 500 }
-    );
+      subtotal: item.subtotal?.N ? Number(item.subtotal.N) : 0,
+      tax: item.tax?.N ? Number(item.tax.N) : 0,
+      total: item.total?.N ? Number(item.total.N) : 0,
+    });
+  } catch (e) {
+    console.error("[API] Error fetching bill:", e);
+    return NextResponse.json({ error: "Error fetching shared bill" }, { status: 500 });
   }
 }
 
-// ✅ Optional CORS handler
-export async function OPTIONS() {
-  return new Response(null, {
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    },
-  });
-}

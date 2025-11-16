@@ -43,7 +43,11 @@ export async function POST(req: Request) {
 
     console.log("✅ Created session:", sessionId);
 
-    return NextResponse.json({ success: true, sessionId });
+    return NextResponse.json({
+     success: true,
+     sessionId,
+     publicLink: `https://bill-splitter-peach.vercel.app/join/${sessionId}`});
+
   } catch (error) {
     console.error("❌ Error creating session:", error);
     return NextResponse.json(

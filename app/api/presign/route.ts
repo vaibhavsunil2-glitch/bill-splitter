@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { randomUUID } from "crypto";
 
 export async function POST(req: Request) {
   try {
@@ -13,14 +14,20 @@ export async function POST(req: Request) {
       return new Response("Missing AWS configuration", { status: 500 });
     }
 
+    // read body
     const { fileName, fileType } = await req.json();
 
     if (!fileName || !fileType) {
-      console.error("❌ Missing fileName or fileType in request");
       return new Response("Missing fileName or fileType", { status: 400 });
     }
 
     console.log("📦 Presigning for:", fileName, "type:", fileType);
+
+    // ⭐ GENERATE SESSION ID
+    const sessionId = randomUUID();
+
+    // ⭐ BUILD CORRECT S3 KEY STRUCTURE
+    const key = `sessions/${sessionId}/receipts/${Date.now()}-${fileName}`;
 
     const s3 = new S3Client({
       region,
@@ -32,14 +39,20 @@ export async function POST(req: Request) {
 
     const command = new PutObjectCommand({
       Bucket: bucket,
-      Key: fileName,
+      Key: key,
       ContentType: fileType,
     });
 
+    // ⭐ RETURN PRESIGNED URL
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
-    console.log("✅ Generated presigned URL:", uploadUrl);
 
-    return Response.json({ uploadUrl });
+    console.log("✅ Generated presigned URL for key:", key);
+
+    return Response.json({
+      uploadUrl,
+      key,        // <-- REQUIRED by your Lambda + API/bill
+      sessionId,  // <-- REQUIRED by share links
+    });
   } catch (error) {
     console.error("💥 Error generating presigned URL:", error);
     return new Response("Failed to create upload URL", { status: 500 });
