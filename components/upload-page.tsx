@@ -15,9 +15,6 @@ export default function UploadPage() {
 
   const router = useRouter();
 
-  // -------------------------------
-  // handle file selection
-  // -------------------------------
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
 
@@ -26,9 +23,6 @@ export default function UploadPage() {
     reader.readAsDataURL(selectedFile);
   };
 
-  // -------------------------------
-  // MAIN UPLOAD HANDLER
-  // -------------------------------
   const handleUpload = async () => {
     if (!file) return setError("Please select a file first");
 
@@ -37,7 +31,7 @@ export default function UploadPage() {
     setStatus("Requesting presigned URL...");
 
     try {
-      // 1️⃣ Request presigned URL
+      // 1) Get presigned URL
       const presignRes = await fetch("/api/presign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -50,18 +44,15 @@ export default function UploadPage() {
       if (!presignRes.ok) throw new Error("Failed to get presigned URL");
 
       const presignData = await presignRes.json();
-
-      const uploadUrl: string = presignData.uploadUrl;
-      const s3Key: string = presignData.key;
-      const sessionId: string = presignData.sessionId;
+      const uploadUrl = presignData.uploadUrl;
+      const s3Key = presignData.key;
+      const sessionId = presignData.sessionId;
 
       if (!uploadUrl || !s3Key || !sessionId) {
-        throw new Error(
-          "Presign API missing key/uploadUrl/sessionId in response"
-        );
+        throw new Error("Presign API missing key, uploadUrl, or sessionId");
       }
 
-      // 2️⃣ Upload file to S3
+      // 2) Upload file to S3
       setStatus("Uploading to S3...");
       await fetch(uploadUrl, {
         method: "PUT",
@@ -69,17 +60,14 @@ export default function UploadPage() {
         body: file,
       });
 
-      // 3️⃣ Poll Textract Processor Lambda via Next.js API
-      setStatus("Processing bill with Textract...");
-
+      // 3) Poll bill processor
+      setStatus("Processing bill...");
       let processedBillData = null;
 
       for (let i = 0; i < 12; i++) {
-        await new Promise((r) => setTimeout(r, 3000)); // wait 3s
+        await new Promise((r) => setTimeout(r, 3000));
 
-        const billRes = await fetch(
-          `/api/bill/${encodeURIComponent(s3Key)}`
-        );
+        const billRes = await fetch(`/api/bill/${encodeURIComponent(s3Key)}`);
 
         if (billRes.ok) {
           processedBillData = await billRes.json();
@@ -91,30 +79,25 @@ export default function UploadPage() {
         throw new Error("Timed out waiting for bill processing");
       }
 
-      // 4️⃣ Create share session
+      // 4) Create share session
       setStatus("Creating share link...");
 
       const shareRes = await fetch("/api/bill/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId,
-          billId: s3Key, // S3 key acts as bill ID
-          imageUrl: processedBillData.imageUrl || "",
-          items: processedBillData.items || [],
-          subtotal: processedBillData.subtotal || 0,
-          tax: processedBillData.tax || 0,
-          total: processedBillData.total || 0,
+          sessionId, // only required field
         }),
       });
 
-      if (!shareRes.ok) throw new Error("Failed to create share session");
+      if (!shareRes.ok) {
+        throw new Error("Failed to create share session");
+      }
 
       const { publicLink } = await shareRes.json();
 
-      // 5️⃣ Show link & redirect
       alert(
-        `✅ Bill processed!\n\nShare this link (valid for 15 minutes):\n${publicLink}`
+        `✅ Bill processed!\n\nShare this link (valid for 15 mins):\n${publicLink}`
       );
 
       router.push(publicLink);
@@ -128,9 +111,6 @@ export default function UploadPage() {
     }
   };
 
-  // -------------------------------
-  // RENDER UI
-  // -------------------------------
   return (
     <main className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl p-8 space-y-6">
@@ -139,7 +119,6 @@ export default function UploadPage() {
           Upload your bill image to extract and split automatically.
         </p>
 
-        {/* Upload Box */}
         <label className="block">
           <div
             onDragOver={(e) => e.preventDefault()}
