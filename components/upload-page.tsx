@@ -64,7 +64,7 @@ export default function UploadPage() {
       setStatus("Processing bill...");
       let processedBillData = null;
 
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, 3000));
 
         const billRes = await fetch(`/api/bill/${encodeURIComponent(s3Key)}`);
@@ -72,9 +72,10 @@ export default function UploadPage() {
         if (billRes.ok) {
           processedBillData = await billRes.json();
           break;
+        }else {
+           console.log(`Attempt ${i + 1}/20: Still processing...`);
         }
-      }
-
+   }
       if (!processedBillData) {
         throw new Error("Timed out waiting for bill processing");
       }
