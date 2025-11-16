@@ -36,8 +36,7 @@ export async function POST(req: Request) {
         TableName: TABLE_NAME,
         Key: { session_id: { S: sessionId } },
 
-        UpdateExpression:
-          "SET shareId = :sid, shareExpiresAt = :exp",
+        UpdateExpression: "SET shareId = :sid, shareExpiresAt = :exp",
 
         ExpressionAttributeValues: {
           ":sid": { S: shareId },

@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient, ScanCommand } from "@aws-sdk/client-dynamodb";
 
+export const dynamic = "force-dynamic";
+
 const client = new DynamoDBClient({
   region: process.env.AWS_REGION || "ap-southeast-2",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
 });
 
 const TABLE_NAME = process.env.TABLE_NAME || "BillSessions";
@@ -14,11 +20,11 @@ export async function GET(
   try {
     const { shareId } = await context.params;
 
-    if (!shareId) {
-      return NextResponse.json({ error: "Missing shareId" }, { status: 400 });
+    if (!shareId || shareId === 'undefined') {
+      return NextResponse.json({ error: "Missing or invalid shareId" }, { status: 400 });
     }
 
-    // search by shareId (NOT session_id)
+    // Search by shareId (NOT session_id)
     const result = await client.send(
       new ScanCommand({
         TableName: TABLE_NAME,
@@ -30,11 +36,12 @@ export async function GET(
     );
 
     if (!result.Items || result.Items.length === 0) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const item = result.Items[0];
 
+    // Check expiration
     const now = Math.floor(Date.now() / 1000);
     const ttl = item.shareExpiresAt?.N ? Number(item.shareExpiresAt.N) : null;
 
@@ -51,7 +58,7 @@ export async function GET(
       total: item.total?.N ? Number(item.total.N) : 0,
     });
   } catch (err) {
-    console.error("JOIN API ERROR:", err);
+    console.error("❌ JOIN API ERROR:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
