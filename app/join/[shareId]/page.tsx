@@ -3,12 +3,17 @@
 import { useEffect, useState } from "react";
 
 export default function Page({ params }: { params: { shareId: string } }) {
-  const { shareId } = params;
+  const shareId = params?.shareId;
 
-  const [bill, setBill] = useState<any>(null);
+  const [bill, setBill] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!shareId || shareId === "undefined") {
+      setError("Missing or invalid shareId");
+      return;
+    }
+
     async function load() {
       try {
         const res = await fetch(`/api/join/${shareId}`);
@@ -19,7 +24,7 @@ export default function Page({ params }: { params: { shareId: string } }) {
         } else {
           setBill(data);
         }
-      } catch (e) {
+      } catch (err) {
         setError("Network error while fetching bill");
       }
     }
@@ -33,7 +38,7 @@ export default function Page({ params }: { params: { shareId: string } }) {
   return (
     <div className="p-8">
       <h1 className="text-3xl font-bold mb-4">Shared Bill</h1>
-      <pre className="p-4 bg-gray-100 rounded-lg border">
+      <pre className="p-4 bg-gray-100 rounded border">
         {JSON.stringify(bill, null, 2)}
       </pre>
     </div>

@@ -20,24 +20,19 @@ export async function POST(req: Request) {
     const { sessionId } = await req.json();
 
     if (!sessionId) {
-      return NextResponse.json(
-        { error: "Missing sessionId" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing sessionId" }, { status: 400 });
     }
 
-    // Generate shareId + TTL
+    // Generate share id
     const shareId = randomUUID();
-    const expiresAt = Math.floor(Date.now() / 1000) + 15 * 60; // 15 minutes
+    const expiresAt = Math.floor(Date.now() / 1000) + 15 * 60;
 
-    // Update existing DynamoDB record
+    // Save it
     await client.send(
       new UpdateItemCommand({
         TableName: TABLE_NAME,
         Key: { session_id: { S: sessionId } },
-
         UpdateExpression: "SET shareId = :sid, shareExpiresAt = :exp",
-
         ExpressionAttributeValues: {
           ":sid": { S: shareId },
           ":exp": { N: String(expiresAt) },
@@ -45,24 +40,18 @@ export async function POST(req: Request) {
       })
     );
 
-    // Build full URL for joining
     const base =
       process.env.NEXT_PUBLIC_API_BASE_URL ||
       "https://bill-splitter-peach.vercel.app";
 
-    const publicLink = `${base}/join/${shareId}`;
-
     return NextResponse.json({
       success: true,
       shareId,
-      publicLink,
+      publicLink: `${base}/join/${shareId}`,
       expiresAt,
     });
   } catch (err) {
     console.error("❌ SHARE API ERROR:", err);
-    return NextResponse.json(
-      { error: "Share session failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Share session failed" }, { status: 500 });
   }
 }

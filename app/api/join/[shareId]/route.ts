@@ -20,11 +20,14 @@ export async function GET(
   try {
     const { shareId } = await context.params;
 
-    if (!shareId || shareId === 'undefined') {
-      return NextResponse.json({ error: "Missing or invalid shareId" }, { status: 400 });
+    if (!shareId || shareId === "undefined") {
+      return NextResponse.json(
+        { error: "Missing or invalid shareId" },
+        { status: 400 }
+      );
     }
 
-    // Search by shareId (NOT session_id)
+    // Search for matching shareId
     const result = await client.send(
       new ScanCommand({
         TableName: TABLE_NAME,
@@ -41,9 +44,11 @@ export async function GET(
 
     const item = result.Items[0];
 
-    // Check expiration
+    // TTL check
     const now = Math.floor(Date.now() / 1000);
-    const ttl = item.shareExpiresAt?.N ? Number(item.shareExpiresAt.N) : null;
+    const ttl = item.shareExpiresAt?.N
+      ? Number(item.shareExpiresAt.N)
+      : null;
 
     if (ttl && now > ttl) {
       return NextResponse.json({ error: "Link expired" }, { status: 410 });
